@@ -10,7 +10,7 @@ namespace KfxLogger
     {
         static void Main(string[] args)
         {
-            TwoProjectCompare.Do();
+            KCLogFindTimezoneIssue.Do();
         }
     }
 }
