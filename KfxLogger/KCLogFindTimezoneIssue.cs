@@ -13,34 +13,39 @@ namespace KfxLogger
             public string StartTime { get; set; }
             public string EndTime { get; set; }
             public string ModuleName { get; set; }
+            public string StationId { get; set; }
+            public Guid gid = Guid.NewGuid();
         }
         internal static void Do()
         {
             var path = @"C:\z";
             var patt = "log_*.arch";
-            var files = Directory.GetFiles(path, patt, SearchOption.AllDirectories).ToList().OrderBy(x=>new FileInfo(x).LastWriteTime).ToList();
+            var files = Directory.GetFiles(path, patt, SearchOption.AllDirectories).ToList().OrderBy(x => new FileInfo(x).LastWriteTime).ToList();
 
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
 
-            var exportname = Path.Combine(path, "erroror_0001.txt");
-            File.WriteAllText(exportname, "");
-            var SummaryFileName = Path.Combine(path, "summ_0001.txt");
-            File.WriteAllText(SummaryFileName, "");
+            var erroror_0001 = Path.Combine(path, "erroror_0001.txt");
+            File.WriteAllText(erroror_0001, "");
             var StationErr = Path.Combine(path, "StationErr000.txt");
             File.WriteAllText(StationErr, "");
 
-            var quote = "\\"+'"';
+            var quote = "\\" + '"';
             var dateformat = @"\d{4}-\d{2}-\d{2}";
             var timeformat = @"\d{2}:\d{2}:\d{2}";
             var number = @"\d+";
             var m05a = new[] { "05", dateformat, timeformat, dateformat, timeformat, ".*", number, ".*", number, ".*", number, number, number, number, number, number };
-            var m05p = string.Join(",", m05a.Select(x => quote + "("+x +")"+ quote));
+            var m05p = string.Join(",", m05a.Select(x => quote + "(" + x + ")" + quote));
 
-            var StationErrorDict = new Dictionary<object, object>();
+            var stationDict = new Dictionary<object, object>();
+            var ModuleDict = new Dictionary<object, object>();
+            var cache = new List<object>();
             foreach (var f in files)
             {
+                var fi = new FileInfo(f);
+                File.AppendAllText(erroror_0001,Environment.NewLine + Environment.NewLine + "========" + fi.Name + "========="  + Environment.NewLine);
                 var bb = File.ReadAllText(f);
                 var m = Regex.Match(bb, "^\"01\",", RegexOptions.Multiline | RegexOptions.IgnoreCase);
- 
+
                 while (m.Success)
                 {
                     var m1 = m; var m2 = m1.NextMatch(); m = m2;
@@ -50,76 +55,102 @@ namespace KfxLogger
                     else
                         thisblock = bb.Substring(m1.Index);
 
-                    /* “05”,“queue start date”,
-“queue start time”,
-“queue end date”,
-“queue end time”,
-“queue process name
-*/
-
-                    //"05","2022-09-09","01:04:55","2022-09-09","01:04:56",
-                    var modules = "^\"05\",\"(\\d{4}-\\d{2}-\\d{2})\",\"(\\d{2}:\\d{2}:\\d{2})\",\"(\\d{4}-\\d{2}-\\d{2})\",\"(\\d{2}:\\d{2}:\\d{2})\",\"(.+)";
-
-
-                    var mm = Regex.Matches(thisblock, modules, RegexOptions.Multiline | RegexOptions.IgnoreCase);
-
+                    
                     var l = new List<Et00>();
-                    for(int i=0;i<mm.Count;i++)
+                    var mm5 = Regex.Matches(thisblock, m05p, RegexOptions.IgnoreCase | RegexOptions.Multiline);
+                    if (mm5.Count > 0)
                     {
-                        var s01b = new[] { mm[i].Groups[1].Value.Trim() , mm[i].Groups[2].Value.Trim() };
-                        var s01e = new[] { mm[i].Groups[2].Value.Trim(), mm[i].Groups[4].Value.Trim() };                        
-                        var e = new Et00();
-                        e.ModuleName = mm[i].Groups[5].Value.Trim();
-                        e.ModuleName = Regex.Replace(e.ModuleName, "\",.+", "");
-                        e.StartTime = string.Join(" ", s01b);
-                        e.EndTime = string.Join(" ", s01e);
-                        l.Add(e);
-                    }
-                    var zz = string.Join(" ", l.OrderBy(x=>x.StartTime).Select(o=>o.ModuleName));
-                    if (Regex.IsMatch(zz,"Export\\s+\\w+"))
-                    {
-                       
-
-                        var rep = new List<string>();
-
-                        rep.Add(thisblock.Trim());
-                        var sl = l.OrderBy(o=>o.StartTime).Select(x=>"  "+string.Join (", ",new[] { x.StartTime, x.EndTime,x.ModuleName}));
-                        rep.Add(string.Join(Environment.NewLine, sl));
-                        rep.Add(Environment.NewLine);
-                        File.AppendAllText(exportname, string.Join(Environment.NewLine, rep));
-                        var error = 1;
-
-                        if (mm.Count > 0)
+                        var los = new List<Et00>();
+                        foreach (Match m5 in mm5)
                         {
-                            var mmm = Regex.Matches(thisblock, m05p, RegexOptions.Multiline | RegexOptions.IgnoreCase);
-                            var lms = new List<Match>();
-                            foreach (Match mi in mmm) lms.Add(mi);
-                            lms = lms.OrderBy(x => "" + x.Groups[2] +" "+ x.Groups[3]).ToList();
-                            var sample = String.Join(Environment.NewLine, lms.Select(x => x.Value.Trim()));
-                            var last = lms.LastOrDefault();
-                            if (last!=null)
+                            var e = new Et00();
+                            e.StartTime = m5.Groups[2].Value + " " + m5.Groups[3].Value;
+                            e.EndTime = m5.Groups[4].Value + " " + m5.Groups[5].Value;
+                            e.ModuleName = m5.Groups[6].Value.Trim();
+                            e.StationId = m5.Groups[8].Value.Trim();
+                            los.Add(e);
+                        }
+                        var rmg = new List<Guid>();
+                        var losByTime = los.OrderBy(x => x.StartTime).ToList();
+                        var exps = losByTime.Where(x => x.ModuleName == "Export").ToList();
+                        var lastexport =  exps.LastOrDefault();
+                        //if (exps.Count>1)
+                        //{
+                        //    cache.Add("zzzzzzz");
+                        //    var multiExp = true;
+                        //}
+                        if (lastexport!=null)
+                        {
+                            var markerid = lastexport.gid;
+                            foreach (var e in losByTime)
                             {
-                                
-                                var workid = Regex.Replace("" + last.Groups[8], ":Sess .*", "");
-                                //var workstation = last.Groups[6] + ";" + last.Groups[8];
-                                var workstation = last.Groups[6] + ";" + workid;
-                                File.AppendAllText(SummaryFileName, workstation+Environment.NewLine);
-                                StationErrorDict[workid] = 1;
+                                rmg.Add(e.gid);
+                                if (e.gid == markerid) break;
                             }
+                            var issues = losByTime.Where(x => !rmg.Contains(x.gid)).ToList();
+                            if (issues.Count > 0)
+                            {
+                                var mraw = "^" + quote + number + quote + ".+$";
+                                var raws = Regex.Matches(thisblock, mraw, RegexOptions.Multiline);
+
+                                var rep = new List<object>();
+                                foreach (Match raw in raws)
+                                {
+                                    var b = false;
+                                    foreach (var i in issues)
+                                    {
+                                        if (raw.Value.Contains(i.StationId))
+                                        {
+                                            b = true;
+                                            break;
+                                        }
+                                    }
+                                    rep.Add((b ? "-- " : "") + raw.Value.Trim());
+                                }
+                                if (rep.Count > 1) rep.Add(Environment.NewLine);
+                                cache.Add(string.Join(Environment.NewLine, rep));
+
+                                foreach (var ii in issues)
+                                {
+                                    stationDict[Regex.Replace(ii.StationId, ":.+", "")] = 1;
+                                    ModuleDict[ii.ModuleName] = 1;
+                                }
+
+                            }
+                            else
+                            {
+                                //cache.Add(thisblock.Trim() + Environment.NewLine);
+                            }
+                        }
+                        
+                        if (cache.Count >= 500)
+                        {
+                            File.AppendAllText(erroror_0001, string.Join(Environment.NewLine, cache));
+                            cache.Clear();
+                            File.WriteAllText(StationErr,
+                           "Stations: " +
+                           string.Join(", ", stationDict.Keys.OrderBy(x => x)) +
+                           Environment.NewLine +
+                           "Modules: " +
+                           string.Join(", ", ModuleDict.Keys.OrderBy(x => x)));
 
                         }
-
                     }
-                    
                 }
-
-               
-
+            }
+            if (cache.Count > 0)
+            {
+                File.AppendAllText(erroror_0001, string.Join(Environment.NewLine, cache));
+                cache.Clear();
             }
 
-            File.WriteAllText(StationErr, string.Join(Environment.NewLine, StationErrorDict.Keys));
+            File.WriteAllText(StationErr,
+                "Stations: " + 
+                string.Join(", ", stationDict.Keys.OrderBy(x=>x))+
+                Environment.NewLine+
+                "Modules: "+
+                string.Join(", ", ModuleDict.Keys.OrderBy(x=>x)));
 
-            
 
         }
     }
