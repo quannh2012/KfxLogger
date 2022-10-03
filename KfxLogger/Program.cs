@@ -8,9 +8,10 @@ namespace KfxLogger
 {
     class Program
     {
+
         static void Main(string[] args)
         {
-            KCLogFindTimezoneIssue.Do();
+            InsightLogAuthenticationDetector.Do();
         }
     }
 }
